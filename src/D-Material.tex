@@ -1,0 +1,455 @@
+% =======================================
+% 参考文献
+% =======================================
+
+\bibliography{src/E-Reference}
+
+% 引用所有 E-Reference.bib 里面的全部参考文献，不论在论文中是否被引用
+\nocite{*}
+
+
+\appendix
+\section{主要使用的软件}
+
+\begin{enumerate}
+    \item 文字编辑方案：Visual Studio Code + \LaTeX
+    \item 协作方案：Git
+    \item 程序模拟：Python
+    \item 绘图软件：Python (matplotlib)
+\end{enumerate}
+
+\section{程序代码}
+
+\begin{lstlisting}[caption={处理和清洗入站数据}]
+import ijson
+import json
+import os
+import re
+from datetime import datetime, time
+
+def sanitize_filename(filename):
+    """
+    用下划线替换无效字符，对用作文件名的字符串进行消毒。
+    """
+    return re.sub(r'[\\/:*?"<>|]', '_', filename)
+
+def proceed_inbound_data(input_file_path, output_dir):
+    """
+    流式处理大型 JSON 文件 (JSON Lines 格式)，只处理 "地铁入站" 数据，并按 station 分类输出到以 station 命名的 TXT 文件中。
+    假设输入文件每行一个 JSON 对象。
+    输出 TXT 文件内容格式为： time1,time2,time3,...
+
+    Args:
+        input_file_path (str): 输入 JSON 文件路径
+        output_dir (str): 输出 TXT 文件的目录
+    """
+
+    station_data = {} # 临时使用字典按 station 存储数据，用于在处理完所有行后写入文件
+    discarded_data_count = 0
+
+    # 确保输出目录存在
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(input_file_path, 'r', encoding='utf-8') as f:
+        for line in f: # 逐行读取文件
+            try:
+                # 尝试解析每一行作为一个 JSON 对象
+                objects = ijson.items(line, '') # 解析单行 JSON
+                for obj in objects: # 迭代单行 JSON 中的顶层对象 (通常只有一个)
+                    if isinstance(obj, dict) and "data" in obj:
+                        for record in obj["data"]:
+                            deal_type = record.get("deal_type")
+                            time_str = record.get("deal_date") # 获取时间字符串
+                            station = record.get("station")
+                            line_name = record.get("company_name")
+
+                            # 清洗字段为 None 的数据
+                            if (time_str is None or line_name is None or station is None):
+                                print(f"忽略非法数据: time={time_str}, line_name={line_name}, station={station}")
+                            else:
+                                if deal_type == "地铁入站":
+                                    try:
+                                        time_obj = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S").time() # 将字符串转换为 time 对象
+                                        cutoff_time = time(12, 0, 0)
+                                        if time_obj >= cutoff_time:
+                                            print(f"舍弃数据 - 站点: {station}, 时间: {time_str} (时间晚于 12:00)")
+                                            discarded_data_count += 1
+                                        else:
+                                            if station not in station_data:
+                                                station_data[station] = []
+                                            station_data[station].append(time_str) # 保存原始时间字符串
+                                            print(f"已处理入站 time = {time_str}, station = {station}")
+                                    except ValueError:
+                                        print(f"忽略非法时间格式数据: {time_str}")
+
+                                else:
+                                    print("忽略出站数据")
+
+            except ijson.common.IncompleteJSONError:
+                print(f"跳过无法解析的 JSON 行 (IncompleteJSONError): {line.strip()}")
+            except json.JSONDecodeError:
+                print(f"跳过无法解析的 JSON 行 (JSONDecodeError): {line.strip()}")
+
+    # 循环遍历 station_data，为每个 station 创建单独的 TXT 文件
+    for station_name, time_list in station_data.items():
+        sanitized_station = sanitize_filename(station_name)
+        output_file_path = os.path.join(output_dir, f"{sanitized_station}.txt") # 输出为 TXT 文件
+        with open(output_file_path, 'w', encoding='utf-8') as f_out:
+            output_content = ",".join(time_list) # 将 time_list 转换为逗号分隔的字符串
+            f_out.write(output_content)
+        print(f"地铁入站数据已保存到 {output_file_path}")
+
+if __name__ == "__main__":
+    input_file = "2018record.json"
+    output_directory = "output_stations"
+    proceed_inbound_data(input_file, output_directory)    
+\end{lstlisting}
+
+\begin{lstlisting}[caption={可视化站点数据}]
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+from statsmodels.nonparametric.smoothers_lowess import lowess
+
+station_name = input("输入站点名：")
+
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+plt.rcParams['axes.unicode_minus'] = False
+
+# 1. 选择文件
+file_path = 'output_stations/' + station_name + ".txt"
+
+# 2. 读取文件数据
+try:
+    with open(file_path, 'r') as f:
+        time_strings = f.read().strip().split(',')
+except FileNotFoundError:
+    print(f"文件 {file_path} 未找到。")
+    exit()
+
+# 3. 转换时间字符串为 datetime 对象
+try:
+    time_series = pd.to_datetime(time_strings, format='%Y-%m-%d %H:%M:%S')
+except ValueError as e:
+    print(f"时间字符串解析错误，检查格式\n错误信息: {e}")
+    exit()
+
+# 4. 创建 Pandas Series
+time_series_pd = pd.Series(time_series)
+
+# 5. 数据分箱和聚合 (按分钟)
+df = pd.DataFrame({'time': time_series_pd})
+df['time_bin'] = df['time'].dt.floor('T')
+hourly_counts = df.groupby('time_bin').size().reset_index(name='count')
+hourly_counts = hourly_counts.set_index('time_bin')
+
+# 正确计算分钟数的方法：
+if not hourly_counts.index.empty: # 检查 index 是否为空，避免报错
+    first_date = hourly_counts.index[0].date() # 获取第一个时间戳的日期
+    start_of_day = pd.to_datetime(first_date) # 使用该日期创建 start_of_day
+    hourly_counts['minutes'] = (hourly_counts.index - start_of_day).total_seconds() / 60
+else:
+    hourly_counts['minutes'] = 0  # 如果 index 为空，minutes 设为 0
+
+# 6. 应用平滑技术
+hourly_counts['sma'] = hourly_counts['count'].rolling(window=25, center=True, min_periods=1).mean()
+
+smoothed_loess = lowess(hourly_counts['count'], hourly_counts['minutes'], frac=0.1)
+hourly_counts['loess'] = smoothed_loess[:, 1]
+
+smoothed_loess_15 = lowess(hourly_counts['count'], hourly_counts['minutes'], frac=0.15)
+hourly_counts['loess_0.15'] = smoothed_loess_15[:, 1]
+
+smoothed_loess_2 = lowess(hourly_counts['count'], hourly_counts['minutes'], frac=0.2)
+hourly_counts['loess_0.2'] = smoothed_loess_2[:, 1]
+
+# 7. 可视化结果
+plt.figure(figsize=(12, 6))
+plt.plot(hourly_counts['minutes'], hourly_counts['count'], label='原始数据', alpha=0.5)
+plt.plot(hourly_counts['minutes'], hourly_counts['sma'], label='SMA (25 分钟窗口)', linewidth=2)
+plt.plot(hourly_counts['minutes'], hourly_counts['loess'], label='LOESS (frac=0.1)', linewidth=2)
+plt.plot(hourly_counts['minutes'], hourly_counts['loess_0.15'], label='LOESS (frac=0.15)', linewidth=2)
+plt.plot(hourly_counts['minutes'], hourly_counts['loess_0.2'], label='LOESS (frac=0.2)', linewidth=2)
+
+plt.xlabel('时间 (自 0:00 的分钟数)')
+plt.ylabel('入站人数')
+plt.title('入站人数曲线 (' + station_name + '站)')
+plt.xlim(0, 48 * 60)
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.legend()
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
+\begin{lstlisting}[caption={求解 $P(t)$}]
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+from scipy.spatial.distance import euclidean
+from fastdtw import fastdtw
+from scipy.optimize import curve_fit
+from statsmodels.nonparametric.smoothers_lowess import lowess
+
+# 设置中文字体和负号显示
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+plt.rcParams['axes.unicode_minus'] = False
+
+# 配置参数
+REFERENCE_STATION = "五和" # 参考站点名称
+TEST_STATION = input("站点名：") # 测试站点名称
+DATA_DIR = "output_stations" # 数据文件目录
+LOESS_FRAC = 0.2 # LOESS 平滑参数，控制平滑度
+
+def min_max_normalize(data):
+    """
+    对数据进行 Min-Max 归一化。
+
+    参数:
+    data (np.array): 要归一化的数据数组。
+
+    返回:
+    np.array: 归一化后的数据数组。
+    """
+    min_val = np.min(data)
+    max_val = np.max(data)
+    if max_val == min_val:
+        return np.zeros_like(data) # 避免除零错误，返回全零数组
+    return (data - min_val) / (max_val - min_val)
+
+def load_and_process(station_name):
+    """
+    加载指定站点的数据，进行时间序列处理、分箱聚合和 LOESS 平滑。
+
+    参数:
+    station_name (str): 站点名称。
+
+    返回:
+    tuple: 包含原始计数数据 (DataFrame) 和平滑计数数据 (DataFrame)，
+            如果加载或处理失败，则返回 (None, None)。
+    """
+    file_path = os.path.join(DATA_DIR, f"{station_name}.txt")
+    try:
+        with open(file_path, 'r') as f:
+            time_strings = f.read().strip().split(',')
+    except FileNotFoundError:
+        print(f"错误: 文件 {file_path} 未找到")
+        return None, None
+
+    try:
+        time_series = pd.to_datetime(time_strings, format='%Y-%m-%d %H:%M:%S', errors='raise')
+    except ValueError as e:
+        print(f"错误: 时间字符串解析错误，请检查日期时间格式\n详细错误: {e}")
+        return None, None
+
+    time_series_pd = pd.Series(time_series)
+    hourly_counts = pd.DataFrame({'time': time_series_pd}).groupby(pd.Grouper(key='time', freq='T')).size().reset_index(name='count')
+    hourly_counts = hourly_counts.rename(columns={'time': 'time_bin'}).set_index('time_bin')
+
+    if not hourly_counts.index.empty:
+        start_of_day = hourly_counts.index[0].normalize() # 获取当天的开始时间
+        hourly_counts['minutes'] = (hourly_counts.index - start_of_day).total_seconds() / 60
+    else:
+        hourly_counts['minutes'] = 0
+
+    raw_counts = hourly_counts[['minutes', 'count']].copy()
+
+    smoothed_data = lowess(hourly_counts['count'], hourly_counts['minutes'], frac=LOESS_FRAC)
+    hourly_counts['smooth'] = smoothed_data[:, 1]
+    hourly_counts['smooth_normalized'] = min_max_normalize(hourly_counts['smooth'])
+
+    return raw_counts, hourly_counts
+
+# 加载数据
+ref_raw_data, ref_processed_data = load_and_process(REFERENCE_STATION)
+if ref_raw_data is None:
+    exit()
+
+test_raw_data, test_processed_data = load_and_process(TEST_STATION)
+if test_raw_data is None:
+    exit()
+
+# --- 可视化原始数据和平滑结果 ---
+plt.figure(figsize=(12, 6))
+plt.plot(ref_raw_data['minutes'], ref_raw_data['count'], label=f'{REFERENCE_STATION}站原始数据', alpha=0.5)
+plt.plot(ref_processed_data['minutes'], ref_processed_data['smooth'], label=f'{REFERENCE_STATION}站 LOESS (frac={LOESS_FRAC})', linewidth=2)
+plt.plot(test_raw_data['minutes'], test_raw_data['count'], label=f'{TEST_STATION}站原始数据', alpha=0.5)
+plt.plot(test_processed_data['minutes'], test_processed_data['smooth'], label=f'{TEST_STATION}站 LOESS (frac={LOESS_FRAC})', linewidth=2)
+
+plt.xlabel('时间 (分钟)')
+plt.ylabel('入站人数')
+plt.title(f'{TEST_STATION}站与{REFERENCE_STATION}站入站人数曲线')
+plt.xlim(0, 1440) # 24小时分钟数
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# --- DTW 对齐 ---
+# 使用归一化平滑数据进行 DTW 对齐
+distance, path = fastdtw(ref_processed_data['smooth_normalized'].values.reshape(-1, 1),
+                        test_processed_data['smooth_normalized'].values.reshape(-1, 1),
+                        dist=euclidean)
+
+# 初始化对齐序列和计数器
+aligned_test_smooth = np.zeros_like(ref_processed_data['smooth'].values)
+alignment_counts = np.zeros_like(ref_processed_data['smooth'].values, dtype=float)
+
+# 基于 DTW 路径对齐测试站点的平滑数据
+for i, j in path:
+    if i < len(aligned_test_smooth) and j < len(test_processed_data['smooth'].values):
+        aligned_test_smooth[i] += test_processed_data['smooth'].values[j]
+        alignment_counts[i] += 1
+
+# 计算平均对齐数据，避免除以零
+aligned_test_smooth = np.divide(aligned_test_smooth, alignment_counts, out=np.zeros_like(aligned_test_smooth), where=alignment_counts != 0)
+normalized_aligned_smooth = min_max_normalize(aligned_test_smooth) # 归一化对齐后的数据
+
+# --- 可视化 DTW 对齐效果 ---
+plt.figure(figsize=(12, 6))
+plt.plot(ref_processed_data['minutes'], ref_processed_data['smooth'], label=f'{REFERENCE_STATION}站 LOESS', linewidth=2)
+plt.plot(test_processed_data['minutes'], test_processed_data['smooth'], label=f'{TEST_STATION}站 LOESS', linewidth=2)
+plt.plot(ref_processed_data['minutes'], aligned_test_smooth, label='DTW 对齐后数据', linewidth=2)
+plt.plot(ref_processed_data['minutes'], normalized_aligned_smooth, label='归一化对齐数据', linestyle='--')
+
+plt.xlabel('时间 (分钟)')
+plt.ylabel('人流量')
+plt.title(f'{TEST_STATION}站 DTW 对齐效果')
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.legend()
+plt.tight_layout()
+plt.show()
+\end{lstlisting}
+
+\begin{lstlisting}[caption={遗传算法}]
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+plt.rcParams['axes.unicode_minus'] = False
+
+A = float(input("A = "))
+mu = float(input("mu = "))
+sigma = float(input("sigma = "))
+alpha = float(input("alpha = "))
+beta = float(input("beta = "))
+
+def P(t):
+    # 略
+
+# 计算成本函数（动态归一化）
+def compute_cost(T, t_current, gamma, eta):
+    if T <= 0:
+        return float('inf')
+    d_tau = 0.01  # 积分步长（分钟）
+    tau_values = np.arange(0, T, d_tau)
+    actual_times = t_current + tau_values
+    p_values = np.vectorize(P)(actual_times)
+    
+    integrand = p_values * (T - tau_values)
+    integral = np.sum(integrand) * d_tau
+    total_cost = (gamma * integral + eta) / T
+    return total_cost
+
+# 遗传算法优化
+def genetic_algorithm(t_current, gamma, eta, population_size=100, generations=100):
+    T_min = 2.0  # 最小发车间隔（分钟）
+    T_max = 15.0  # 最大发车间隔（分钟）
+    mutation_rate = 0.3
+    mutation_std = 0.3
+
+    # 初始化种群
+    population = np.random.uniform(low=T_min, high=T_max, size=population_size)
+
+    best_fitness_history = []
+    best_T_history = []
+
+    for generation in range(generations):
+        # 计算适应度（1/Cost）
+        costs = np.array([compute_cost(T, t_current, gamma, eta) for T in population])
+        fitness = 1 / (costs + 1e-8)  # 避免除以零
+        
+        # 记录最佳个体
+        best_idx = np.argmax(fitness)
+        best_T = population[best_idx]
+        best_cost = costs[best_idx]
+        best_T_history.append(best_T)
+        best_fitness_history.append(1 / best_cost)
+        print(f"Generation {generation}: Best T = {best_T:.2f} mins, Cost = {best_cost:.2f}")
+        
+        # 轮盘赌选择
+        probabilities = fitness / np.sum(fitness)
+        parent_indices = np.random.choice(population_size, size=population_size, p=probabilities)
+        parents = population[parent_indices]
+        
+        # 算术交叉（加权平均）
+        offspring = []
+        for i in range(0, population_size, 2):
+            p1, p2 = parents[i], parents[(i+1)%population_size]
+            alpha = np.random.rand()
+            child1 = alpha * p1 + (1 - alpha) * p2
+            child2 = (1 - alpha) * p1 + alpha * p2
+            offspring.extend([child1, child2])
+        offspring = np.array(offspring[:population_size])
+        
+        # 高斯变异
+        mask = np.random.rand(population_size) < mutation_rate
+        noise = np.random.normal(0, mutation_std, population_size)
+        offspring = np.where(mask, offspring + noise, offspring)
+        offspring = np.clip(offspring, T_min, T_max)  # 限制在范围内
+        
+        population = offspring
+
+    # 返回最优解
+    best_T = best_T_history[-1]
+    return best_T, best_T_history, best_fitness_history
+
+# 可视化函数
+def plot_system_status(t_current, best_T):
+    plt.figure(figsize=(15, 10))
+    
+    # 子图1
+    plt.subplot(1,2,1)
+    t_range = np.linspace(0, 12*60, 1000)
+    P_values = np.vectorize(P)(t_range)
+    plt.plot(t_range, P_values, 'b-', label='P(t)')
+    plt.axvline(x=t_current, color='r', linestyle='--', label='当前时间')
+    plt.axvline(x=(t_current + best_T), color='g', linestyle='--', label='发车时间')
+    plt.xlabel('分钟')
+    plt.ylabel('人数')
+    plt.title(f'乘客到达图像')
+    plt.legend()
+    plt.grid(True)
+
+    # 子图2：成本函数曲线
+    plt.subplot(1,2,2)
+    T_range = np.linspace(2, 15, 100)
+    costs = [compute_cost(T, t_current, gamma, eta) for T in T_range]
+    plt.plot(T_range, costs, 'g-', label='Cost Curve')
+    plt.axvline(x=best_T, color='r', label=f'Optimal T = {best_T:.1f}min')
+    plt.xlabel('发车间隔（分钟）')
+    plt.ylabel('总成本')
+    plt.title('成本函数')
+    plt.legend()
+    plt.grid(True)
+
+    plt.tight_layout()
+    plt.show()
+
+# 主程序
+if __name__ == "__main__":
+    # 参数设置
+    current_time = float(input("模拟时间："))
+    gamma = 2.0         # 等待时间成本系数
+    eta = 10.0          # 发车固定成本
+
+    # 运行遗传算法
+    best_T, best_T_history, best_fitness_history = genetic_algorithm(current_time, gamma, eta)
+
+    # 输出结果
+    print(f"\n{best_T:.2f} 分钟后发车")
+
+    # 可视化
+    plot_system_status(current_time, best_T)
+\end{lstlisting}

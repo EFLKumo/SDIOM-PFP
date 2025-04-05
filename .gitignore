@@ -1,0 +1,4 @@
+build
+*.jsons
+res/code/2018record.json
+res/code/output_stations/
