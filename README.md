@@ -1,4 +1,5 @@
-# SDIOM-PFP 基于客流预测的地铁发车间隔优化模型
+# SDIOM-PFP
+**基于客流预测的地铁发车时刻优化模型**  
 本项目是 2025 年全国高中生数学建模竞赛参赛作品，我们尝试通过简单的 LOESS、DTW 技术计算出地铁站点的客流预测模型，并基于此通过遗传算法优化发车时刻。
 
 本项目使用了 https://github.com/hereismg/MathematicalModelingEssayTemplate 作为模板，非常感谢。
