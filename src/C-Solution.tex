@@ -7,6 +7,7 @@
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\textwidth]{res/Figure_1.png}
+    \caption{龙城广场站客流曲线}
     \label{fig:entryCurveLongcheng}
 \end{figure}
 
@@ -15,12 +16,14 @@
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\textwidth]{res/Figure_2.png}
+    \caption{八卦岭入站曲线}
     \label{fig:entryCurveBagualing}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\textwidth]{res/Figure_3.png}
+    \caption{布吉入站曲线}
     \label{fig:entryCurveBuji}
 \end{figure}
 
@@ -31,9 +34,9 @@ $$
 L_i(t) = \text{LOESS}(E_i, frac=0.2)(t)
 $$
 
-不同站点的客流高峰时间、形态存在差异，为了构建一个适用于一般性分析或作为基准的平均模式，我们采用动态时间规整（DTW）\cite{DTW}技术，将各站点的平滑曲线 $L_i(t)$ 在时间轴上向一个参考站点，此处以五和站为例。
+不同站点的客流高峰时间、形态存在差异，为了构建一个适用于一般性分析或作为基准的平均模式，我们采用动态时间规整（DTW）\cite{DTW}技术，将各站点的平滑曲线 $L_i(t)$ 在时间轴上向一个参考站点。
 
-然后选定五和站为标准进行 DTW 规整。值得注意的是，在 DTW 对齐过程中，我们发现如果直接使用原始数据进行对齐，容易出现对齐后曲线与标准数据曲线高度重合、高峰部分则异变为水平直线（最大值和研究数据相同）的现象。
+值得注意的是，在 DTW 对齐过程中，我们发现如果直接使用原始数据进行对齐，容易出现对齐后曲线与标准数据曲线高度重合、高峰部分则异变为水平直线（最大值和研究数据相同）的现象。
 我们推测这是因为研究数据与标准数据的局部波动（如小峰值或噪声）不一致，DTW 会在这些区域频繁调整路径，导致对齐后的时间轴不平滑。
 因此，我们使用 min-max 归一化后的数据作为 DTW 参数，这是很有效的。
 
@@ -50,6 +53,7 @@ $$
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\textwidth]{res/Figure_5.png}
+    \caption{八卦岭对齐效果}
     \label{fig:alignedBagualing}
 \end{figure}
 
@@ -59,7 +63,7 @@ $$
 \bar{P}(t) = \frac{1}{n} \sum_{i} P_i(t)
 $$
 
-我们将这个经验平均曲线 $\bar{P}(t)$ 作为未来时段（0:00-12:00）的预测乘客到达速率函数，即 $P(t) = \bar{P}(t)$。这个 $P(t)$ 函数直接反映了历史数据的平均模式，避免了拟合特定数学公式可能带来的模型设定偏差。
+我们将这个经验平均曲线 $\bar{P}(t)$ 作为未来时段（0:00-12:00）的预测乘客到达速率函数，即 $P(t) = \bar{P}(t)$。
 
 \mcmSubsection{问题二：站点对模型进行还原}
 
@@ -82,7 +86,7 @@ $$
 \text{Cost}(t) = \frac{\gamma \int _0 ^T P(\tau)(T-\tau)d\tau + \eta}{T}
 $$
 
-为了综合考虑乘客体验和运营成本，经过多次人工测试和评估，选定 $\gamma=2.0$ 和 $eta=10.0$ 作为参数。设计如下的遗传算法：
+为了综合考虑乘客体验和运营成本，经过多次人工测试和评估，选定 $\gamma=2.0$ 和 $\eta=10.0$ 作为参数。设计如下的遗传算法：
 
 \begin{enumerate}
     \item 个体：发车间隔 $T$，取值范围为 $[T_{\min}, T_{\max}]$
@@ -101,12 +105,14 @@ $$
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\textwidth]{res/Figure_7.png}
+    \caption{布吉站遗传算法图1}
     \label{fig:gaBuji1}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\textwidth]{res/Figure_8.png}
+    \caption{布吉站遗传算法图2}
     \label{fig:gaBuji2}
 \end{figure}
 
